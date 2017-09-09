@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.8)
+project(uGameMasterServer)
+add_definitions(-D_DEBUG)
+add_definitions(-D_LOG2FILE)
+
+set(CMAKE_CXX_STANDARD 11)
+include_directories(include)
+
+set(SOURCE_FILES src/main.cpp src/core/Server.cpp include/core/Server.h src/utils/Logger.cpp include/utils/Logger.h include/Constants.h src/core/Client.cpp include/core/Client.h src/core/Query.cpp include/core/Query.h src/utils/MD5.cpp include/utils/MD5.h)
+add_executable(uGameMasterServer ${SOURCE_FILES})
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake_modules")
+find_package(SFML REQUIRED system network)
+find_package(MySQL REQUIRED)
+if (SFML_FOUND AND MYSQL_FOUND)
+    include_directories(${SFML_INCLUDE_DIR})
+    include_directories(${MYSQL_INCLUDE_DIR})
+    target_link_libraries(uGameMasterServer ${SFML_LIBRARIES} ${MYSQL_LIBRARIES})
+endif()
