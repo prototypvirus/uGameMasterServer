@@ -40,6 +40,9 @@ namespace uGame {
             case RequestAuthorize:
                 return authorize(packet);
 
+            case RequestServers:
+                return servers();
+
             default:
                 bad();
                 return;
@@ -137,13 +140,11 @@ namespace uGame {
             _sock->send(resp);
             return;
         }
-        sf::Uint64 session[] = {
-                getRandom(),
-                getRandom()
-        };
+        _session[0] = getRandom();
+        _session[1] = getRandom();
         q = Server::instance()->query(
-                "INSERT INTO `session` VALUES (NULL, NOW(), '" + sid + "', " + std::to_string(session[0]) +
-                ", " + std::to_string(session[1]) + ");");
+                "INSERT INTO `session` VALUES (NULL, NOW(), '" + sid + "', " + std::to_string(_session[0]) +
+                ", " + std::to_string(_session[1]) + ");");
         if (q == NULL)
             return;
         delete q;
@@ -151,11 +152,28 @@ namespace uGame {
         resp << ResponseResultInfo;
         resp << rev;
         if (rev == 0)
-            resp << (sf::Uint64) session[0] << (sf::Uint64) std::stoll(sid) << (sf::Uint64) session[1];
+            resp << (sf::Uint64) _session[0] << (sf::Uint64) std::stoll(sid) << (sf::Uint64) _session[1];
         else
-            resp << (sf::Uint64) session[1] << (sf::Uint64) std::stoll(sid) << (sf::Uint64) session[0];
+            resp << (sf::Uint64) _session[1] << (sf::Uint64) std::stoll(sid) << (sf::Uint64) _session[0];
         _sock->send(resp);
         _state |= StateAuthorized;
+    }
+
+    void Client::servers() {
+        if((_state & StateAuthorized) == 0)
+            return bad();
+        sf::Packet resp;
+        resp << ResponseServers;
+        Query* q = Server::instance()->query("SELECT `ip`, `port`, `name`, `load` FROM `servers` WHERE `;");
+        if(q == NULL)
+            return bad();
+        sf::Uint8 len = static_cast<sf::Uint8>(q->getRowsCount());
+        resp << len;
+        for (int i = 0; i < len; ++i) {
+            MYSQL_ROW row = q->getRow();
+            resp << row[0] << (sf::Uint16)std::stoi(row[1]) << row[2] << (sf::Uint8)std::stoi(row[3]);
+        }
+        _sock->send(resp);
     }
 
 }

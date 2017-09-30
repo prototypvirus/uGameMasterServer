@@ -12,9 +12,10 @@ namespace uGame {
     public:
         enum PacketIDRequest {
             RequestHandShake = 1,
-            RequestAuthorize/*,
-            RequestChangePassword,
-            RequestDeleteAccount*/ //For future...
+            RequestAuthorize,
+            RequestChangePassword, //For future...
+            RequestServers,
+            RequestDeleteAccount //For future...
         };
         enum PacketIDResponse {
             ResponseMaintenance = 1,
@@ -22,8 +23,9 @@ namespace uGame {
             ResponseContinue,
             ResponseIncorrectCredentials,
             ResponseBanned,
-            ResponseResultInfo/*,
-            ResponseSuccess*/ //For future...
+            ResponseResultInfo,
+            ResponseServers,
+            ResponseSuccess //For future...
         };
         enum State {
             StateNone = 0,
@@ -40,10 +42,12 @@ namespace uGame {
     protected:
         sf::TcpSocket* _sock;
         sf::Uint16 _state;
+        sf::Uint64 _session[2];
         void bad();
         unsigned long getRandom();
         void handshake(sf::Packet in);
         void authorize(sf::Packet in);
+        void servers();
     };
 }
 
