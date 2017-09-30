@@ -28,7 +28,7 @@ namespace uGame {
     void Client::receive() {
         sf::Packet packet;
         if (_sock->receive(packet) != sf::Socket::Done)
-            return bad(); 
+            return bad();
 
         sf::Uint16 id = 0;
         if (!(packet >> id))
