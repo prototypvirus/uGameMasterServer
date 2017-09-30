@@ -10,123 +10,152 @@
 #include <climits>
 #include "core/Client.h"
 
-uGame::Client::Client(sf::TcpSocket *sock) {
-    _sock = sock;
-    _kick = false;
-}
+namespace uGame {
 
-uGame::Client::~Client() {
-    delete _sock;
-}
-
-sf::TcpSocket *uGame::Client::socket() {
-    return _sock;
-}
-
-void uGame::Client::receive() {
-    sf::Packet packet;
-    if(_sock->receive(packet) != sf::Socket::Done)
-        return;
-    sf::Uint16 id = 0;
-    if(!(packet >> id)) {
-        bad();
-        return;
+    Client::Client(sf::TcpSocket *sock) {
+        _sock = sock;
+        _state = StateNone;
     }
-    switch (id) {
-        case HandShake: {
-            sf::Packet resp;
-            if (Server::instance()->isMaintenance()) {
-                resp << Maintenance;
-                _sock->send(resp);
-                return;
-            }
-            std::string version;
-            if (!(packet >> version)) {
+
+    Client::~Client() {
+        delete _sock;
+    }
+
+    sf::TcpSocket *Client::socket() {
+        return _sock;
+    }
+
+    void Client::receive() {
+        sf::Packet packet;
+        if (_sock->receive(packet) != sf::Socket::Done)
+            return;
+        sf::Uint16 id = 0;
+        if (!(packet >> id))
+            return bad();
+
+        switch (id) {
+            case RequestHandShake:
+                return handshake(packet);
+
+            case RequestAuthorize:
+                return authorize(packet);
+
+            default:
                 bad();
                 return;
-            }
-            if (version != Server::instance()->getVersion()) {
-                resp << UpdateRequire;
-                resp << Server::instance()->getVersion();
-                _sock->send(resp);
-                return;
-            }
-            resp << Continue;
+        }
+    }
+
+    bool Client::toKick() {
+        return (_state & StateKick) != 0;
+    }
+
+    void Client::bad() {
+        _state |= StateKick;
+    }
+
+    unsigned long Client::getRandom() {
+        std::mt19937 rng;
+        rng.seed(std::random_device()());
+        std::uniform_int_distribution<std::mt19937::result_type> gen(0, ULONG_MAX);
+        return gen(rng);
+    }
+
+    void Client::handshake(sf::Packet in) {
+        if((_state & RequestHandShake) != 0)
+            return bad();
+
+        sf::Packet resp;
+        if (Server::instance()->isMaintenance()) {
+            resp << ResponseMaintenance;
             _sock->send(resp);
             return;
         }
+        std::string version;
+        if (!(in >> version))
+            return bad();
+        if (version != Server::instance()->getVersion()) {
+            resp << ResponseUpdateRequire;
+            resp << Server::instance()->getVersion();
+            _sock->send(resp);
+            return;
+        }
+        std::string hwid;
+        if(!(in >> hwid))
+            return bad();
 
-        case Authorize: {
-            std::string username;
-            std::string password;
-            sf::Packet resp;
-            if (!(packet >> username >> password)) {
-                bad();
-                return;
-            }
-            Query *q = Server::instance()->query(
-                    "SELECT `id`,`password`,`ban` FROM `users` WHERE `email` == '" + Server::escape(username) + "';");
-            if(q == NULL) {
-                bad();
-                return;
-            }
-            if(q->getRowsCount() < 1) {
-                delete q;
-                resp << IncorrectCredentials;
-                _sock->send(resp);
-                return;
-            }
+        Query *q = Server::instance()->query(
+                "SELECT `state` FROM `hardware` WHERE `hash` == '" + Server::escape(hwid) + "';");
+        if (q == NULL)
+            return bad();
+
+        if(q->getRowsCount() > 0) {
+            sf::Uint8 hwState = static_cast<sf::Uint8>(std::stoi(q->getRow()[0]));
+            resp << hwState;
+        }else
+            resp << (sf::Uint8)0;
+        resp << ResponseContinue;
+        _sock->send(resp);
+        _state |= StateHandshake;
+    }
+
+    void Client::authorize(sf::Packet in) {
+        if((_state & RequestHandShake) == 0 || (_state & StateAuthorized) != 0)
+            return bad();
+
+        std::string username;
+        std::string password;
+        sf::Packet resp;
+        if (!(in >> username >> password))
+            return bad();
+
+        Query *q = Server::instance()->query(
+                "SELECT `id`,`password`,`ban` FROM `users` WHERE `email` == '" + Server::escape(username) +
+                "';");
+        if (q == NULL)
+            return bad();
+
+        if (q->getRowsCount() < 1) {
             delete q;
-            MYSQL_ROW row = q->getRow();
-            std::string sid = row[0];
-            std::string pass = row[1];
-            std::string sban = row[2];
-            if(MD5(std::string(password.rbegin(), password.rend())).hexdigest() != pass) {
-                resp << IncorrectCredentials;
-                _sock->send(resp);
-                return;
-            }
-            if(std::stoi(sban) > 0) {
-                resp << Banned;
-                resp << (sf::Uint8)std::stoi(sban);
-                _sock->send(resp);
-                return;
-            }
-            sf::Uint64 session[] = {
+            resp << ResponseIncorrectCredentials;
+            _sock->send(resp);
+            return;
+        }
+        delete q;
+        MYSQL_ROW row = q->getRow();
+        std::string sid = row[0];
+        std::string pass = row[1];
+        std::string sban = row[2];
+        if (MD5(std::string(password.rbegin(), password.rend())).hexdigest() != pass) {
+            resp << ResponseIncorrectCredentials;
+            _sock->send(resp);
+            return;
+        }
+        if (std::stoi(sban) > 0) {
+            resp << ResponseBanned;
+            resp << (sf::Uint8) std::stoi(sban);
+            _sock->send(resp);
+            return;
+        }
+        sf::Uint64 session[] = {
                 getRandom(),
                 getRandom()
-            };
-            q = Server::instance()->query("INSERT INTO `session` VALUES (NULL, NOW(), '"+sid+"', "+std::to_string(session[0])+", "+std::to_string(session[0])+");");
-            if(q != NULL)
-                delete q;
-            sf::Uint8 rev = static_cast<sf::Uint8>(rand() % 2);
-            resp << ResultInfo;
-            resp << rev;
-            if(rev == 0)
-                resp << (sf::Uint64)session[0] << (sf::Uint64)std::stoll(sid) << (sf::Uint64)session[1];
-            else
-                resp << (sf::Uint64)session[1] << (sf::Uint64)std::stoll(sid) << (sf::Uint64)session[0];
-            _sock->send(resp);
+        };
+        q = Server::instance()->query(
+                "INSERT INTO `session` VALUES (NULL, NOW(), '" + sid + "', " + std::to_string(session[0]) +
+                ", " + std::to_string(session[1]) + ");");
+        if (q == NULL)
             return;
-        }
-
-        default:
-            bad();
-            return;
+        delete q;
+        sf::Uint8 rev = static_cast<sf::Uint8>(rand() % 2);
+        resp << ResponseResultInfo;
+        resp << rev;
+        if (rev == 0)
+            resp << (sf::Uint64) session[0] << (sf::Uint64) std::stoll(sid) << (sf::Uint64) session[1];
+        else
+            resp << (sf::Uint64) session[1] << (sf::Uint64) std::stoll(sid) << (sf::Uint64) session[0];
+        _sock->send(resp);
+        _state |= StateAuthorized;
     }
-}
 
-bool uGame::Client::toKick() {
-    return _kick;
-}
-
-void uGame::Client::bad() {
-    _kick = true;
-}
-
-unsigned long uGame::Client::getRandom() {
-    std::mt19937 rng;
-    rng.seed(std::random_device()());
-    std::uniform_int_distribution<std::mt19937::result_type> gen(0, ULONG_MAX);
-    return gen(rng);
 }

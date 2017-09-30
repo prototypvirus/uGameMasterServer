@@ -11,18 +11,25 @@ namespace uGame {
     class Client {
     public:
         enum PacketIDRequest {
-            HandShake = 1,
-            Authorize/*,
-            ChangePassword,
-            DeleteAccount*/ //For future...
+            RequestHandShake = 1,
+            RequestAuthorize/*,
+            RequestChangePassword,
+            RequestDeleteAccount*/ //For future...
         };
-        enum PacketIDResponce {
-            Maintenance = 1,
-            UpdateRequire,
-            Continue,
-            IncorrectCredentials,
-            Banned,
-            ResultInfo
+        enum PacketIDResponse {
+            ResponseMaintenance = 1,
+            ResponseUpdateRequire,
+            ResponseContinue,
+            ResponseIncorrectCredentials,
+            ResponseBanned,
+            ResponseResultInfo/*,
+            ResponseSuccess*/ //For future...
+        };
+        enum State {
+            StateNone = 0,
+            StateHandshake = 1,
+            StateAuthorized = 2,
+            StateKick = 4
         };
         Client(sf::TcpSocket* sock);
         ~Client();
@@ -32,9 +39,11 @@ namespace uGame {
 
     protected:
         sf::TcpSocket* _sock;
-        bool _kick;
+        sf::Uint16 _state;
         void bad();
         unsigned long getRandom();
+        void handshake(sf::Packet in);
+        void authorize(sf::Packet in);
     };
 }
 
