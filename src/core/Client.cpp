@@ -28,7 +28,8 @@ namespace uGame {
     void Client::receive() {
         sf::Packet packet;
         if (_sock->receive(packet) != sf::Socket::Done)
-            return;
+            return bad(); 
+
         sf::Uint16 id = 0;
         if (!(packet >> id))
             return bad();
@@ -134,9 +135,11 @@ namespace uGame {
             _sock->send(resp);
             return;
         }
-        if (std::stoi(sban) > 0) {
+        resp << username;
+        sf::Uint8 ban = static_cast<sf::Uint8>(std::stoi(sban));
+        if (ban > 0) {
             resp << ResponseBanned;
-            resp << (sf::Uint8) std::stoi(sban);
+            resp << ban;
             _sock->send(resp);
             return;
         }
