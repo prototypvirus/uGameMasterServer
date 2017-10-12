@@ -25,6 +25,7 @@ namespace uGame {
             ResponseBanned,
             ResponseResultInfo,
             ResponseServers,
+            ResponceBadPassword
             ResponseSuccess //For future...
         };
         enum State {
@@ -48,6 +49,7 @@ namespace uGame {
         void handshake(sf::Packet in);
         void authorize(sf::Packet in);
         void servers();
+        void changePasswd(sf::Packet in);
     };
 }
 

@@ -44,6 +44,9 @@ namespace uGame {
             case RequestServers:
                 return servers();
 
+            case RequestChangePassword:
+                return changePasswd(packet);
+
             default:
                 bad();
                 return;
@@ -114,7 +117,7 @@ namespace uGame {
             return bad();
 
         Query *q = Server::instance()->query(
-                "SELECT `id`,`password`,`ban` FROM `users` WHERE `email` == '" + Server::escape(username) +
+                "SELECT `id`,`password`,`ban`,`id` FROM `users` WHERE `email` == '" + Server::escape(username) +
                 "';");
         if (q == NULL)
             return bad();
@@ -130,11 +133,13 @@ namespace uGame {
         std::string sid = row[0];
         std::string pass = row[1];
         std::string sban = row[2];
+        sf::Uint64 uid = static_cast<sf::Uint64>(std::stoll(row[3]));
         if (MD5(std::string(password.rbegin(), password.rend())).hexdigest() != pass) {
             resp << ResponseIncorrectCredentials;
             _sock->send(resp);
             return;
         }
+        resp << uid;
         resp << username;
         sf::Uint8 ban = static_cast<sf::Uint8>(std::stoi(sban));
         if (ban > 0) {
@@ -176,6 +181,38 @@ namespace uGame {
             MYSQL_ROW row = q->getRow();
             resp << row[0] << (sf::Uint16)std::stoi(row[1]) << row[2] << (sf::Uint8)std::stoi(row[3]);
         }
+        _sock->send(resp);
+    }
+
+    void Client::changePasswd(sf::Packet in) {
+        if((_state & StateAuthorized) == 0)
+            return bad();
+        sf::Uint64 uid;
+        std::string origPasswd;
+        std::string newPasswd;
+        if(!(in >> uid >> origPasswd >> newPasswd))
+            return bad();
+
+        Query* q = Server::instance()->query("SELECT `password` WHERE `id`="+std::to_string(uid)+";");
+        if(q == NULL)
+            return;
+        if(q->getRowsCount() < 1)
+            return bad();
+
+        sf::Packet resp;
+        MYSQL_ROW row = q->getRow();
+        std::string cng = MD5(std::string(origPasswd.rbegin(), origPasswd.rend())).hexdigest();
+        if(cng != row[0]) {
+            resp << ResponceBadPassword;
+            _sock->send(resp);
+            return;
+        }
+        delete q;
+        q = Server::instance()->query("UPDATE `users` SET `password`='"+cng+"' WHERE `uid`="+std::to_string(uid)+';');
+        if(q == NULL)
+            return bad();
+        delete q;
+        resp << ResponseSuccess;
         _sock->send(resp);
     }
 
